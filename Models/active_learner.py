@@ -3,12 +3,14 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 
+
 def uncertainty_sampling(model, data_dir, num_samples=10):
     # Load the unlabelled data
     transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor()])
     dataset = ImageFolder(root=data_dir, transform=transform)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-
+    # Remove already labelled samples from dataloader
+    dataloader = DataLoader(dataset=set(dataset.samples) - set(labelled_samples), batch_size=1, shuffle=False)
+    
     model.eval()
     uncertainties = []
 
@@ -21,8 +23,10 @@ def uncertainty_sampling(model, data_dir, num_samples=10):
 
     # Select the samples with the highest uncertainty
     selected_samples = sorted(uncertainties, key=lambda x: x[1], reverse=True)[:num_samples]
-    return [sample[0] for sample in selected_samples]
+    # Add to labelled samples
+    labelled_samples.extend(selected_samples)
+    return selected_samples
 
-
+labelled_samples = []
 # model = PretrainedEfficientNet(num_classes=10)
 # informative_samples = uncertainty_sampling(model, 'path/to/unlabelled/data')

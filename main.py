@@ -6,7 +6,7 @@ from utils.data_loader import load_labelled_data, load_unlabelled_data
 
 def main():
    
-    num_classes = 10  
+    num_classes = 10
     labelled_data_dir = 'path/to/labelled/data'
     unlabelled_data_dir = 'path/to/unlabelled/data'
     num_epochs = 5  # Number of epochs for initial training
@@ -38,14 +38,17 @@ def main():
         # Select samples using active learning
         informative_samples = uncertainty_sampling(model, unlabelled_data_dir, num_samples=num_samples_per_round)
 
+        # Implement human-in-the-loop annotation tool display the images and ask the user to provide labels
+        for sample in informative_samples:
+            image = sample[0]
+            label = input(f"Please provide a label for the image: {image}")
+            sample[1] = label
 
-
-        # Figure out the annotation process
+        
+        # Add the informative samples to the labelled dataset
+        labelled_loader.dataset.samples.extend(informative_samples)
 
         # Re-train the model with the augmented dataset
-        # (Reload the labelled data loader since the dataset has been augmented)
-        labelled_loader = load_labelled_data(labelled_data_dir)
-
         # Training loop (same as initial training)
         model.train()
         for epoch in range(num_epochs):
