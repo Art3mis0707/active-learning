@@ -1,66 +1,66 @@
 import torch
+import torch.nn as nn
 import torch.optim as optim
-from models.pretrain_model import PretrainedEfficientNet
-from models.active_learner import uncertainty_sampling
-from utils.data_loader import load_labelled_data, load_unlabelled_data
+import models.active_learner as active 
+import util.data_loader as loader 
+from torch.utils.data import Subset
+from torchvision.models import resnet18, ResNet18_Weights
 
-def main():
-   
-    num_classes = 10
-    labelled_data_dir = 'path/to/labelled/data'
-    unlabelled_data_dir = 'path/to/unlabelled/data'
-    num_epochs = 5  # Number of epochs for initial training
-    num_samples_per_round = 10  # Number of samples to query in each active learning round
 
-    # Initialize the model
-    model = PretrainedEfficientNet(num_classes=num_classes)
-    criterion = torch.nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-   
-    labelled_loader = load_labelled_data(labelled_data_dir)
 
-    # Initial training phase
-    for epoch in range(num_epochs):
-        model.train()
-        for inputs, labels in labelled_loader:
+def train_model(model, criterion, optimizer, dataloader, device,  epochs=5):
+    model.train()
+    print("Initial training begins")
+    for epoch in range(epochs):
+        for images, labels in dataloader:
+            # Adjust for CUDA availability
+            images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
-            outputs = model(inputs)
+            outputs = model(images)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-        print(f'Epoch {epoch+1}/{num_epochs} completed')
+        print(f'Epoch {epoch+1}, Loss: {loss.item()}')
+    print("Initial training is complete")
 
-    # Active learning rounds
-    for round in range(5):  # Number of rounds
-        print(f'Active learning round {round+1}')
+
+def main():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    num_classes = 256
+    labelled_data_dir = 'C:\\Users\\HP\\OneDrive\\Desktop\\ALTL\\caltech256_extracted'
+    unlabeled_data_dir = 'C:\\Users\\HP\\OneDrive\\Desktop\\ALTL\\caltech256_extracted'
+
+    model = resnet18(weights=ResNet18_Weights.DEFAULT)
+    num_ftrs = model.fc.in_features
+    model.fc = nn.Linear(num_ftrs, num_classes)
+    model = model.to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+
+    initial_loader, all_labeled_dataset = loader.load_initial_subset(labelled_data_dir, batch_size=32, initial_sample_size=100)
+    train_model(model, criterion, optimizer, initial_loader, device, epochs=5)
+
+    print("Beginning Active Learning selection")
+    for cycle in range(5):
+        print('Epoch :', cycle)
+
+        print('Loading unlabelled data')
+        unlabeled_loader = loader.create_unlabeled_loader(unlabeled_data_dir, batch_size=32)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print("Selecting samples for labelling using active learning")
+        selected_indices = active.select_samples_for_labeling(model, unlabeled_loader, device, num_samples=10)
+
         
-        # Select samples using active learning
-        informative_samples = uncertainty_sampling(model, unlabelled_data_dir, num_samples=num_samples_per_round)
-
-        # Implement human-in-the-loop annotation tool display the images and ask the user to provide labels
-        for sample in informative_samples:
-            image = sample[0]
-            label = input(f"Please provide a label for the image: {image}")
-            sample[1] = label
-
+        print('Simulate labeling by adding selected samples to the labeled dataset')
+        selected_subset = Subset(unlabeled_loader.dataset, selected_indices)
+        all_labeled_dataset = loader.ConcatDataset([all_labeled_dataset, selected_subset])
+        updated_loader = loader.DataLoader(all_labeled_dataset, batch_size=32, shuffle=True)
         
-        # Add the informative samples to the labelled dataset
-        labelled_loader.dataset.samples.extend(informative_samples)
-
-        # Re-train the model with the augmented dataset
-        # Training loop (same as initial training)
-        model.train()
-        for epoch in range(num_epochs):
-            for inputs, labels in labelled_loader:
-                optimizer.zero_grad()
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
-                loss.backward()
-                optimizer.step()
-            print(f'Epoch {epoch+1}/{num_epochs} in round {round+1} completed')
-
-    print('Active learning process completed')
+        print("Retraining the model after the updation")
+        train_model(model, criterion, optimizer, updated_loader, device, epochs=5)
+    print('Active Learning selection complete')
 
 if __name__ == "__main__":
     main()
