@@ -1,32 +1,32 @@
 import torch
-from torch.utils.data import DataLoader
 from torchvision import transforms
-from torchvision.datasets import ImageFolder
+import numpy as np
 
-
-def uncertainty_sampling(model, data_dir, num_samples=10):
-    # Load the unlabelled data
-    transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor()])
-    dataset = ImageFolder(root=data_dir, transform=transform)
-    # Remove already labelled samples from dataloader
-    dataloader = DataLoader(dataset=set(dataset.samples) - set(labelled_samples), batch_size=1, shuffle=False)
-    
+def select_samples_for_labeling(model, dataloader, device, num_samples=10):
     model.eval()
     uncertainties = []
-
     with torch.no_grad():
-        for inputs, _ in dataloader:
-            outputs = model(inputs)
-            # Calculate uncertainty (e.g., using entropy)
-            entropy = -torch.sum(outputs.softmax(1) * torch.log(outputs.softmax(1) + 1e-5), dim=1)
-            uncertainties.append((inputs, entropy.item()))
+        for images, _ in dataloader:
+            images = images.to(device)
+            outputs = model(images)
+            _, preds = torch.max(outputs, 1)
+            probs = torch.nn.functional.softmax(outputs, dim=1)
+            top_probs, _ = torch.topk(probs, 1)
+            uncertainty = 1.0 - top_probs.squeeze()
+            uncertainties.extend(uncertainty.cpu().numpy())
 
-    # Select the samples with the highest uncertainty
-    selected_samples = sorted(uncertainties, key=lambda x: x[1], reverse=True)[:num_samples]
-    # Add to labelled samples
-    labelled_samples.extend(selected_samples)
-    return selected_samples
+            # Debugging prints
+            print("Predictions:", preds)
+            print("Top probabilities:", top_probs)
+            print("Uncertainty:", uncertainty)
 
-labelled_samples = []
-# model = PretrainedEfficientNet(num_classes=10)
-# informative_samples = uncertainty_sampling(model, 'path/to/unlabelled/data')
+    uncertainties = np.array(uncertainties)
+    selected_indices = np.argsort(uncertainties)[-num_samples:]
+    
+    # Debugging print
+    print("Selected indices:", selected_indices)
+    print("Uncertainties of selected:", uncertainties[selected_indices])
+    
+    return selected_indices
+
+
